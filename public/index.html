@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Smart Health — NTR District</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<script src="https://cdn.socket.io/4.8.0/socket.io.min.js"></script>
+<style>
+  :root {
+    --nurse: #0E7C66; --nurse-bg: #E4F3EF;
+    --doctor: #1D63C9; --doctor-bg: #E7EFFB;
+    --admin: #6B3FA0; --admin-bg: #F0E9F7;
+    --pharmacy: #B5651D; --pharmacy-bg: #FBEEE1;
+    --bg: #F4F5F7; --card: #FFFFFF; --border: #E2E4E8;
+    --text: #17202A; --muted: #6B7280;
+    --success: #1E8E5A; --success-bg: #E6F4EC;
+    --error: #B3261E; --error-bg: #FDECEA;
+    --info-bg: #EEF1F5;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); }
+  .app { max-width: 480px; margin: 0 auto; min-height: 100vh; background: var(--bg); display: flex; flex-direction: column; }
+
+  .topbar { padding: 16px 18px; display: flex; justify-content: space-between; align-items: center; background: var(--card); border-bottom: 1px solid var(--border); }
+  .topbar h1 { font-size: 17px; margin: 0; font-weight: 700; }
+  .topbar .conn { font-size: 11px; color: var(--muted); }
+
+  .appbar { color: #fff; padding: 16px 18px; display: flex; align-items: center; gap: 14px; }
+  .appbar .back { cursor: pointer; font-size: 20px; width: 24px; }
+  .appbar h1 { font-size: 17px; margin: 0; font-weight: 700; }
+  .appbar.nurse { background: var(--nurse); }
+  .appbar.doctor { background: var(--doctor); }
+  .appbar.admin { background: var(--admin); }
+  .appbar.pharmacy { background: var(--pharmacy); }
+
+  /* ---- Home: app-tile grid, not a chat list ---- */
+  .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 16px; }
+  .tile { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 18px 14px; cursor: pointer; text-align: center; }
+  .tile:active { background: #f0f1f3; }
+  .tile .icon { width: 52px; height: 52px; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 24px; margin: 0 auto 10px; }
+  .tile.nurse .icon { background: var(--nurse-bg); }
+  .tile.doctor .icon { background: var(--doctor-bg); }
+  .tile.admin .icon { background: var(--admin-bg); }
+  .tile.pharmacy .icon { background: var(--pharmacy-bg); }
+  .tile .title { font-size: 14px; font-weight: 700; }
+  .tile .subtitle { font-size: 11px; color: var(--muted); margin-top: 3px; }
+
+  /* ---- Screens ---- */
+  .screen { display: none; flex-direction: column; flex: 1; }
+  .screen.active { display: flex; }
+  .screen-body { padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+
+  .action-list { display: flex; flex-direction: column; gap: 8px; }
+  .action-item { display: flex; align-items: center; gap: 12px; background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 13px 14px; cursor: pointer; }
+  .action-item:active { background: #f0f1f3; }
+  .action-item .ic { width: 36px; height: 36px; border-radius: 9px; display: flex; align-items: center; justify-content: center; font-size: 17px; flex-shrink: 0; }
+  .action-item .info { flex: 1; }
+  .action-item .title { font-size: 14px; font-weight: 600; }
+  .action-item .subtitle { font-size: 12px; color: var(--muted); margin-top: 1px; }
+  .chev { color: var(--muted); }
+
+  /* ---- Step card ---- */
+  .step { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 18px; display: none; }
+  .step.active { display: block; }
+  .step h2 { font-size: 15px; margin: 0 0 4px; }
+  .step .desc { font-size: 13px; color: var(--muted); margin-bottom: 14px; }
+  .progress { font-size: 11px; color: var(--muted); margin-bottom: 6px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; }
+
+  label { font-size: 12px; color: var(--muted); display: block; margin: 10px 0 4px; font-weight: 600; }
+  input, select { width: 100%; padding: 11px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 15px; background: #fafafa; }
+  input:focus, select:focus { outline: none; border-color: var(--nurse); background: #fff; }
+
+  .btn { width: 100%; padding: 13px; margin-top: 14px; border: none; border-radius: 8px; font-size: 14px; font-weight: 700; cursor: pointer; }
+  .btn-row { display: flex; gap: 10px; }
+  .btn-row .btn { margin-top: 14px; }
+  .btn.nurse-primary { background: var(--nurse); color: #fff; }
+  .btn.doctor-primary { background: var(--doctor); color: #fff; }
+  .btn.admin-primary { background: var(--admin); color: #fff; }
+  .btn.pharmacy-primary { background: var(--pharmacy); color: #fff; }
+  .btn-secondary { background: #fff; color: var(--text); border: 1.5px solid var(--border); }
+  .btn-danger { background: #fff; color: var(--error); border: 1.5px solid var(--error); }
+
+  /* ---- Result cards (not chat bubbles — flat cards with a status border) ---- */
+  .status-card { border-radius: 8px; padding: 12px 14px; font-size: 13px; line-height: 1.5; border-left: 4px solid var(--muted); background: var(--info-bg); }
+  .status-card.success { border-left-color: var(--success); background: var(--success-bg); }
+  .status-card.error { border-left-color: var(--error); background: var(--error-bg); }
+  .status-card .meta { font-size: 11px; color: var(--muted); margin-top: 6px; }
+  .line-item { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .line-item:last-child { border-bottom: none; }
+  .tag { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 10.5px; font-weight: 700; margin-left: 6px; }
+  .tag.low { background: var(--error-bg); color: var(--error); }
+  .tag.expiring { background: #FFF3D6; color: #8A5A0C; }
+
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .stat { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px; text-align: center; }
+  .stat .num { font-size: 22px; font-weight: 800; }
+  .stat .lbl { font-size: 10.5px; color: var(--muted); text-transform: uppercase; margin-top: 3px; }
+  .feed { display: flex; flex-direction: column; gap: 6px; max-height: 240px; overflow-y: auto; }
+  .section-title { font-size: 13px; font-weight: 700; margin: 4px 0 0; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ===== HOME ===== -->
+  <div id="screen-home" class="screen active">
+    <div class="topbar">
+      <h1>Smart Health</h1>
+      <span class="conn" id="conn-status">connecting…</span>
+    </div>
+    <div class="tiles">
+      <div class="tile nurse" onclick="openScreen('nurse')">
+        <div class="icon">🧑‍⚕️</div><div class="title">Nurse Desk</div><div class="subtitle">Register, beds, pharmacy</div>
+      </div>
+      <div class="tile doctor" onclick="openScreen('doctor')">
+        <div class="icon">👨‍⚕️</div><div class="title">Doctor Desk</div><div class="subtitle">Attendance, diagnosis</div>
+      </div>
+      <div class="tile admin" onclick="openScreen('admin')">
+        <div class="icon">📊</div><div class="title">Admin</div><div class="subtitle">District dashboard</div>
+      </div>
+      <div class="tile pharmacy" onclick="openScreen('inventory')">
+        <div class="icon">💊</div><div class="title">Inventory</div><div class="subtitle">Stock &amp; expiry</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== NURSE HOME ===== -->
+  <div id="screen-nurse" class="screen">
+    <div class="appbar nurse"><span class="back" onclick="openScreen('home')">←</span><h1>Nurse Desk</h1></div>
+    <div class="screen-body">
+      <div class="action-list">
+        <div class="action-item" onclick="openScreen('nurse-snapshot')"><div class="ic" style="background:var(--nurse-bg);">📋</div><div class="info"><div class="title">Facility snapshot</div><div class="subtitle">Patient count, beds available</div></div><div class="chev">›</div></div>
+        <div class="action-item" onclick="openScreen('nurse-register')"><div class="ic" style="background:var(--nurse-bg);">📝</div><div class="info"><div class="title">Register a patient</div><div class="subtitle">Check status, then register</div></div><div class="chev">›</div></div>
+        <div class="action-item" onclick="openScreen('nurse-inprocess')"><div class="ic" style="background:var(--nurse-bg);">👥</div><div class="info"><div class="title">Who's in process</div><div class="subtitle">Active patients at a facility</div></div><div class="chev">›</div></div>
+        <div class="action-item" onclick="openScreen('nurse-beds')"><div class="ic" style="background:var(--nurse-bg);">🛏️</div><div class="info"><div class="title">Bed management</div><div class="subtitle">Assign or release a bed</div></div><div class="chev">›</div></div>
+        <div class="action-item" onclick="openScreen('nurse-dispense')"><div class="ic" style="background:var(--pharmacy-bg);">💊</div><div class="info"><div class="title">Dispense medicine</div><div class="subtitle">Pharmacy queue &amp; stock</div></div><div class="chev">›</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== NURSE: SNAPSHOT ===== -->
+  <div id="screen-nurse-snapshot" class="screen">
+    <div class="appbar nurse"><span class="back" onclick="openScreen('nurse')">←</span><h1>Facility snapshot</h1></div>
+    <div class="screen-body">
+      <div class="step active">
+        <label>Facility ID</label><input id="snap-facility" placeholder="e.g. PHC-GOVERNORPET" />
+        <button class="btn nurse-primary" onclick="loadSnapshot()">Refresh</button>
+      </div>
+      <div class="grid">
+        <div class="stat"><div class="num" id="snap-patients">–</div><div class="lbl">Patients in process</div></div>
+        <div class="stat"><div class="num" id="snap-beds">–</div><div class="lbl">Beds available</div></div>
+        <div class="stat"><div class="num" id="snap-doctors">–</div><div class="lbl">Doctors present</div></div>
+        <div class="stat"><div class="num" id="snap-lowstock">–</div><div class="lbl">Low-stock alerts</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== NURSE: REGISTER ===== -->
+  <div id="screen-nurse-register" class="screen">
+    <div class="appbar nurse"><span class="back" onclick="openScreen('nurse')">←</span><h1>Register a patient</h1></div>
+    <div class="screen-body">
+      <div class="step active" id="nr-step1">
+        <div class="progress">Step 1 of 2</div>
+        <h2>Which facility, and who's the patient?</h2>
+        <div class="desc">We'll check if they already have an active visit first.</div>
+        <label>Facility ID</label><input id="n-facility" placeholder="e.g. PHC-GOVERNORPET" />
+        <label>Patient's Aadhaar number</label><input id="n-aadhaar" value="123456789012" />
+        <button class="btn nurse-primary" onclick="checkThenMaybeRegister()">Check &amp; continue</button>
+        <div id="nr-status" style="margin-top:12px;"></div>
+      </div>
+      <div class="step" id="nr-step2">
+        <div class="progress">Step 2 of 2</div>
+        <h2>Patient details</h2>
+        <div class="desc">No active visit found — fill in their details to register.</div>
+        <label>Name</label><input id="n-name" value="Ravi Kumar" />
+        <div class="btn-row">
+          <div style="flex:1"><label>Age</label><input id="n-age" value="34" /></div>
+          <div style="flex:1"><label>Gender</label><select id="n-gender"><option value="M">M</option><option value="F">F</option><option value="OTHER">OTHER</option></select></div>
+        </div>
+        <button class="btn nurse-primary" onclick="registerPatient()">Register &amp; queue for doctor</button>
+        <button class="btn btn-secondary" onclick="showStep('nr-step1')">Back</button>
+      </div>
+      <div id="nr-result"></div>
+    </div>
+  </div>
+
+  <!-- ===== NURSE: IN PROCESS ===== -->
+  <div id="screen-nurse-inprocess" class="screen">
+    <div class="appbar nurse"><span class="back" onclick="openScreen('nurse')">←</span><h1>Who's in process</h1></div>
+    <div class="screen-body">
+      <div class="step active">
+        <label>Facility ID</label><input id="ip-facility" placeholder="e.g. PHC-GOVERNORPET" />
+        <button class="btn nurse-primary" onclick="loadInProcess()">Show active patients</button>
+      </div>
+      <div id="ip-list" class="feed"></div>
+    </div>
+  </div>
+
+  <!-- ===== NURSE: BEDS ===== -->
+  <div id="screen-nurse-beds" class="screen">
+    <div class="appbar nurse"><span class="back" onclick="openScreen('nurse')">←</span><h1>Bed management</h1></div>
+    <div class="screen-body">
+      <div class="step active">
+        <label>Bed QR code</label><input id="b-qr" value="BED-QR-001" />
+        <label>Patient's Aadhaar (for assigning)</label><input id="b-aadhaar" value="123456789012" />
+        <div class="btn-row">
+          <button class="btn nurse-primary" onclick="bedAction('assign')">Assign</button>
+          <button class="btn btn-danger" onclick="bedAction('release')">Release</button>
+        </div>
+      </div>
+      <div id="b-result"></div>
+    </div>
+  </div>
+
+  <!-- ===== NURSE: DISPENSE (stock-aware) ===== -->
+  <div id="screen-nurse-dispense" class="screen">
+    <div class="appbar pharmacy"><span class="back" onclick="openScreen('nurse')">←</span><h1>Dispense medicine</h1></div>
+    <div class="screen-body">
+      <div class="step active" id="rx-step1">
+        <div class="progress">Step 1 of 3</div>
+        <h2>Call the next patient</h2>
+        <label>Facility ID</label><input id="q-facility-rx" placeholder="e.g. PHC-GOVERNORPET" />
+        <button class="btn pharmacy-primary" onclick="nextPharmacyPatient()">▶ Call next for pharmacy</button>
+        <div id="rx-current" style="margin-top:12px;"></div>
+        <div class="btn-row" id="rx-actions" style="display:none;">
+          <button class="btn pharmacy-primary" onclick="confirmPharmacyPatient()">Confirm — proceed</button>
+          <button class="btn btn-danger" onclick="skipPharmacyPatient()">Not here — skip</button>
+        </div>
+      </div>
+
+      <div class="step" id="rx-step2">
+        <div class="progress">Step 2 of 3</div>
+        <h2>Confirm &amp; dispense</h2>
+        <div class="desc">Prescribed quantities vs. what's currently in stock:</div>
+        <div id="rx-prescription" style="margin-bottom:6px;"></div>
+        <label>Patient Aadhaar number (to confirm identity)</label><input id="rx-aadhaar" value="123456789012" />
+        <button class="btn pharmacy-primary" onclick="dispense()">Dispense &amp; complete visit</button>
+        <button class="btn btn-secondary" onclick="showStep('rx-step1')">Back</button>
+      </div>
+
+      <div class="step" id="rx-step3">
+        <div class="progress">Step 3 of 3</div>
+        <h2>Receipt</h2>
+        <div id="rx-receipt"></div>
+        <button class="btn btn-secondary" onclick="loadDispenseHistory()">View this patient's dispense history</button>
+        <div id="rx-history" style="margin-top:10px;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== DOCTOR HOME ===== -->
+  <div id="screen-doctor" class="screen">
+    <div class="appbar doctor"><span class="back" onclick="openScreen('home')">←</span><h1>Doctor Desk</h1></div>
+    <div class="screen-body">
+      <div class="action-list">
+        <div class="action-item" onclick="openScreen('doctor-attendance')"><div class="ic" style="background:var(--doctor-bg);">📷</div><div class="info"><div class="title">Attendance</div><div class="subtitle">QR check-in / check-out</div></div><div class="chev">›</div></div>
+        <div class="action-item" onclick="openScreen('doctor-diagnose')"><div class="ic" style="background:var(--doctor-bg);">🩺</div><div class="info"><div class="title">Diagnose patient</div><div class="subtitle">Call next, then diagnose</div></div><div class="chev">›</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== DOCTOR: ATTENDANCE ===== -->
+  <div id="screen-doctor-attendance" class="screen">
+    <div class="appbar doctor"><span class="back" onclick="openScreen('doctor')">←</span><h1>Attendance</h1></div>
+    <div class="screen-body">
+      <div class="step active">
+        <label>Doctor ID</label><input id="d-id" placeholder="e.g. DOC-001" />
+        <div class="btn-row">
+          <button class="btn doctor-primary" onclick="staffAction('login')">Check in</button>
+          <button class="btn btn-danger" onclick="staffAction('logout')">Check out</button>
+        </div>
+      </div>
+      <div id="d-result"></div>
+    </div>
+  </div>
+
+  <!-- ===== DOCTOR: DIAGNOSE ===== -->
+  <div id="screen-doctor-diagnose" class="screen">
+    <div class="appbar doctor"><span class="back" onclick="openScreen('doctor')">←</span><h1>Diagnose patient</h1></div>
+    <div class="screen-body">
+      <div class="step active" id="dx-step1">
+        <div class="progress">Step 1 of 3</div>
+        <h2>Call the next patient</h2>
+        <label>Facility ID</label><input id="q-facility" placeholder="e.g. PHC-GOVERNORPET" />
+        <button class="btn doctor-primary" onclick="nextDoctorPatient()">▶ Call next patient</button>
+        <div id="q-current" style="margin-top:10px;"></div>
+        <div class="btn-row" id="q-actions" style="display:none;">
+          <button class="btn doctor-primary" onclick="showStep('dx-step2')">Confirm — proceed</button>
+          <button class="btn btn-danger" onclick="skipDoctorPatient()">Not here — skip</button>
+        </div>
+      </div>
+
+      <div class="step" id="dx-step2">
+        <div class="progress">Step 2 of 3</div>
+        <h2>Confirm identity</h2>
+        <div class="desc">Ask the patient for their Aadhaar number.</div>
+        <label>Patient Aadhaar number</label><input id="dx-aadhaar" value="123456789012" />
+        <label>Symptoms (comma-separated)</label><input id="dx-symptoms" value="fever, cough" />
+        <button class="btn doctor-primary" onclick="showStep('dx-step3')">Next</button>
+        <button class="btn btn-secondary" onclick="showStep('dx-step1')">Back</button>
+      </div>
+
+      <div class="step" id="dx-step3">
+        <div class="progress">Step 3 of 3</div>
+        <h2>Prescription</h2>
+        <label>Doctor ID</label><input id="dx-doctor" placeholder="e.g. DOC-001" />
+        <label>Drug ID</label><input id="dx-drugid" placeholder="e.g. dolo_650" onchange="previewDrugStock()" />
+        <div id="dx-stock-preview" style="margin:6px 0;"></div>
+        <div class="btn-row">
+          <div style="flex:1"><label>Drug name</label><input id="dx-drugname" value="Dolo 650" /></div>
+          <div style="flex:1"><label>Qty</label><input id="dx-qty" value="10" /></div>
+        </div>
+        <button class="btn doctor-primary" onclick="diagnose()">Submit diagnosis</button>
+        <button class="btn btn-secondary" onclick="showStep('dx-step2')">Back</button>
+      </div>
+      <div id="dx-result"></div>
+    </div>
+  </div>
+
+  <!-- ===== INVENTORY ===== -->
+  <div id="screen-inventory" class="screen">
+    <div class="appbar pharmacy"><span class="back" onclick="openScreen('home')">←</span><h1>Pharmacy Inventory</h1></div>
+    <div class="screen-body">
+      <div class="step active">
+        <label>Facility ID</label><input id="inv-facility" placeholder="e.g. PHC-GOVERNORPET" />
+        <button class="btn pharmacy-primary" onclick="loadInventory()">Load inventory</button>
+      </div>
+      <div id="inv-list" class="feed"></div>
+    </div>
+  </div>
+
+  <!-- ===== ADMIN ===== -->
+  <div id="screen-admin" class="screen">
+    <div class="appbar admin"><span class="back" onclick="openScreen('home')">←</span><h1>Admin Dashboard</h1></div>
+    <div class="screen-body">
+      <div class="step active">
+        <label>Facility ID</label><input id="a-facility" placeholder="e.g. PHC-GOVERNORPET" />
+        <button class="btn admin-primary" onclick="loadDashboard()">Refresh dashboard</button>
+      </div>
+      <div class="grid">
+        <div class="stat"><div class="num" id="stat-doctor-q">–</div><div class="lbl">Doctor queue</div></div>
+        <div class="stat"><div class="num" id="stat-pharmacy-q">–</div><div class="lbl">Pharmacy queue</div></div>
+        <div class="stat"><div class="num" id="stat-beds">–</div><div class="lbl">Beds available</div></div>
+        <div class="stat"><div class="num" id="stat-doctors">–</div><div class="lbl">Doctors present</div></div>
+      </div>
+      <div class="section-title">Live activity</div>
+      <div id="feed" class="feed"></div>
+      <div class="section-title">AI demand forecast</div>
+      <div class="step active">
+        <label>Drug ID</label><input id="fc-drug" placeholder="e.g. amoxyclav_625" />
+        <button class="btn admin-primary" onclick="loadForecast()">Get Gemini forecast</button>
+      </div>
+      <div id="fc-result"></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const API = window.location.origin;
+
+function openScreen(name) {
+  document.querySelectorAll(".screen").forEach(s => s.classList.remove("active"));
+  document.getElementById("screen-" + name).classList.add("active");
+}
+function showStep(id) {
+  const parent = document.getElementById(id).parentElement;
+  parent.querySelectorAll(".step").forEach(s => s.classList.remove("active"));
+  document.getElementById(id).classList.add("active");
+}
+function val(id) { return document.getElementById(id).value; }
+function card(container, type, html) { container.innerHTML = `<div class="status-card ${type}">${html}</div>`; }
+
+async function postJSON(path, body) {
+  const res = await fetch(API + path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
+  return { ok: res.ok, data: await res.json() };
+}
+async function putJSON(path, body) {
+  const res = await fetch(API + path, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
+  return { ok: res.ok, data: await res.json() };
+}
+async function getJSON(path) {
+  const res = await fetch(API + path);
+  return { ok: res.ok, data: await res.json() };
+}
+
+// ---- Nurse: register ----
+async function checkThenMaybeRegister() {
+  const { data } = await getJSON(`/api/visits/status/${val("n-aadhaar")}`);
+  const box = document.getElementById("nr-status");
+  if (data.inProcess) {
+    card(box, "", `<b>Already in process.</b><br>${data.message}<div class="meta">Status: ${data.visit.currentStatus}</div>`);
+  } else {
+    card(box, "success", `<b>Clear to register.</b><br>${data.message}`);
+    showStep("nr-step2");
+  }
+}
+async function registerPatient() {
+  const { data } = await postJSON("/api/visits/register", {
+    facility_id: val("n-facility"), aadhaar_number: val("n-aadhaar"),
+    name: val("n-name"), age: Number(val("n-age")), gender: val("n-gender"),
+  });
+  const box = document.getElementById("nr-result");
+  if (data.visit) card(box, "success", `<b>Registered!</b><br>${data.patient.name} added to the doctor queue.`);
+  else card(box, "error", data.error || JSON.stringify(data));
+}
+async function loadInProcess() {
+  const { data } = await getJSON(`/api/visits/active/${val("ip-facility")}`);
+  const list = document.getElementById("ip-list");
+  list.innerHTML = "";
+  (data.patients || []).forEach(p => {
+    const div = document.createElement("div");
+    div.className = "status-card";
+    div.innerHTML = `<b>${p.patientName}</b><div class="meta">${p.status}</div>`;
+    list.appendChild(div);
+  });
+  if (!data.patients || data.patients.length === 0) card(list, "", "No one currently in process.");
+}
+async function bedAction(action) {
+  const body = action === "assign" ? { aadhaar_number: val("b-aadhaar") } : {};
+  const { data } = await postJSON(`/api/beds/${val("b-qr")}/${action}`, body);
+  card(document.getElementById("b-result"), data.bed ? "success" : "error", data.message || JSON.stringify(data));
+}
+
+// ---- Doctor ----
+async function staffAction(action) {
+  const { data } = await postJSON(`/api/staff/${val("d-id")}/${action}`);
+  card(document.getElementById("d-result"), data.staff ? "success" : "error", data.message || JSON.stringify(data));
+}
+let currentDoctorVisit = null;
+async function nextDoctorPatient() {
+  const { data } = await getJSON(`/api/queue/doctor/${val("q-facility")}/next`);
+  const box = document.getElementById("q-current");
+  const actions = document.getElementById("q-actions");
+  if (data.visit) {
+    currentDoctorVisit = data.visit;
+    const p = data.patient;
+    card(box, "success", `<b>${p ? p.name : "unknown"}</b>${p ? ` — ${p.age}yo, ${p.gender}` : ""}<div class="meta">Visit status: ${data.visit.currentStatus}${data.visit.doctorSkipCount ? ` — missed ${data.visit.doctorSkipCount}x before` : ""}</div>`);
+    actions.style.display = "flex";
+  } else {
+    card(box, "", "No one waiting in the doctor queue.");
+    actions.style.display = "none";
+    currentDoctorVisit = null;
+  }
+}
+async function skipDoctorPatient() {
+  if (!currentDoctorVisit) return;
+  const { data } = await postJSON(`/api/queue/doctor/${val("q-facility")}/skip`, { visitId: currentDoctorVisit._id });
+  card(document.getElementById("q-current"), data.discarded ? "error" : "", data.message);
+  document.getElementById("q-actions").style.display = "none";
+  currentDoctorVisit = null;
+}
+async function previewDrugStock() {
+  const drugId = val("dx-drugid");
+  if (!drugId) return;
+  const { data } = await getJSON(`/api/inventory/drug/${drugId}`);
+  const box = document.getElementById("dx-stock-preview");
+  if (data.drugName) {
+    document.getElementById("dx-drugname").value = data.drugName;
+    const lowTag = data.isLowStock ? '<span class="tag low">Low stock</span>' : "";
+    card(box, "", `In stock: <b>${data.currentStock} ${data.unit}</b>${lowTag}`);
+  } else {
+    card(box, "error", "Drug ID not found.");
+  }
+}
+async function diagnose() {
+  const { data } = await putJSON(`/api/visits/by-aadhaar/${val("dx-aadhaar")}/diagnose`, {
+    doctor_id: val("dx-doctor"),
+    symptoms_vector: val("dx-symptoms").split(",").map(s => s.trim()),
+    prescription_array: [{ drugId: val("dx-drugid"), drugName: val("dx-drugname"), quantity: Number(val("dx-qty")) }],
+  });
+  card(document.getElementById("dx-result"), data.visit ? "success" : "error", data.visit ? "Diagnosis recorded — sent to pharmacy queue." : (data.error || JSON.stringify(data)));
+}
+
+// ---- Nurse: dispense (stock-aware) ----
+let currentPharmacyVisit = null;
+let currentPrescription = [];
+async function nextPharmacyPatient() {
+  const { data } = await getJSON(`/api/queue/pharmacy/${val("q-facility-rx")}/next`);
+  const box = document.getElementById("rx-current");
+  const actions = document.getElementById("rx-actions");
+  if (!data.visit) {
+    card(box, "", "No one waiting in the pharmacy queue.");
+    actions.style.display = "none";
+    currentPharmacyVisit = null;
+    return;
+  }
+  currentPharmacyVisit = data.visit;
+  const p = data.patient;
+  card(box, "success", `<b>${p ? p.name : "unknown"}</b>${p ? ` — ${p.age}yo, ${p.gender}` : ""}<div class="meta">${data.visit.pharmacySkipCount ? `Missed ${data.visit.pharmacySkipCount}x before` : ""}</div>`);
+  actions.style.display = "flex";
+}
+async function skipPharmacyPatient() {
+  if (!currentPharmacyVisit) return;
+  const { data } = await postJSON(`/api/queue/pharmacy/${val("q-facility-rx")}/skip`, { visitId: currentPharmacyVisit._id });
+  card(document.getElementById("rx-current"), data.discarded ? "error" : "", data.message);
+  document.getElementById("rx-actions").style.display = "none";
+  currentPharmacyVisit = null;
+}
+async function confirmPharmacyPatient() {
+  currentPrescription = currentPharmacyVisit.prescriptionArray || [];
+  const rows = await Promise.all(currentPrescription.map(async (item) => {
+    const stockRes = await getJSON(`/api/inventory/drug/${item.drugId}`);
+    const stock = stockRes.data.currentStock ?? "?";
+    const lowTag = stockRes.data.isLowStock ? '<span class="tag low">Low</span>' : "";
+    return `<div class="line-item"><span>${item.drugName} — order ${item.quantity}</span><span>Stock: ${stock} ${lowTag}</span></div>`;
+  }));
+  document.getElementById("rx-prescription").innerHTML = rows.join("") || "<i>No prescription on this visit.</i>";
+  showStep("rx-step2");
+}
+async function dispense() {
+  const { data } = await postJSON(`/api/visits/by-aadhaar/${val("rx-aadhaar")}/dispense`);
+  if (!data.visit) { card(document.getElementById("rx-result") || document.getElementById("rx-receipt"), "error", data.error || JSON.stringify(data)); return; }
+
+  const rows = (data.updatedDrugs || []).map(d => {
+    const ordered = currentPrescription.find(p => p.drugId === d.drugId);
+    return `<div class="line-item"><span>Dispensed ${ordered ? ordered.quantity : "?"} of ${d.drugName}</span><span>Remaining: ${d.currentStock}</span></div>`;
+  }).join("");
+  document.getElementById("rx-receipt").innerHTML = `<div class="status-card success"><b>Visit completed.</b></div>${rows}`;
+  showStep("rx-step3");
+}
+async function loadDispenseHistory() {
+  const { data } = await getJSON(`/api/inventory/history/${val("rx-aadhaar")}`);
+  const box = document.getElementById("rx-history");
+  if (!data.history || data.history.length === 0) { card(box, "", "No prior dispense history for this patient."); return; }
+  box.innerHTML = data.history.map(h =>
+    `<div class="line-item"><span>${h.drugName} × ${h.quantity}</span><span class="meta">${new Date(h.dispensedAt).toLocaleDateString()}</span></div>`
+  ).join("");
+}
+
+// ---- Nurse: snapshot ----
+async function loadSnapshot() {
+  const { data } = await getJSON(`/api/summary/${val("snap-facility")}`);
+  document.getElementById("snap-patients").textContent = data.patientsInProcess ?? "–";
+  document.getElementById("snap-beds").textContent = (data.bedsAvailable ?? "–") + "/" + (data.bedsTotal ?? "–");
+  document.getElementById("snap-doctors").textContent = (data.doctorsPresent ?? "–") + "/" + (data.doctorsTotal ?? "–");
+  document.getElementById("snap-lowstock").textContent = data.lowStockAlertCount ?? "–";
+}
+
+// ---- Pharmacy Inventory ----
+async function loadInventory() {
+  const { data } = await getJSON(`/api/inventory/${val("inv-facility")}`);
+  const list = document.getElementById("inv-list");
+  list.innerHTML = "";
+  (data.drugs || []).forEach(d => {
+    const div = document.createElement("div");
+    const tags = [];
+    if (d.isLowStock) tags.push('<span class="tag low">Low stock</span>');
+    if (d.expiryAlert) tags.push(`<span class="tag expiring">Expires in ${d.daysToExpiry}d</span>`);
+    div.className = "status-card";
+    div.innerHTML = `<b>${d.drugName}</b> <span class="meta">(${d.drugId})</span>
+      <div class="meta">${d.currentStock} ${d.unit} in stock — buffer ${d.minBuffer}</div>
+      <div style="margin-top:6px;">${tags.join(" ")}</div>`;
+    list.appendChild(div);
+  });
+  if (!data.drugs || data.drugs.length === 0) card(list, "", "No drugs found for this facility.");
+}
+
+// ---- Admin ----
+async function loadDashboard() {
+  const facilityId = val("a-facility");
+  const query = `{ facilityDashboard(facilityId: "${facilityId}") {
+    facilityName inventory { drugName currentStock isLowStock }
+    queues { doctorQueueLength pharmacyQueueLength }
+    beds { totalBeds occupiedBeds availableBeds }
+    doctorsPresent doctorsTotal
+  } }`;
+  const res = await fetch(API + "/api/graphql", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query }) });
+  const data = await res.json();
+  const d = data.data && data.data.facilityDashboard;
+  if (d) {
+    document.getElementById("stat-doctor-q").textContent = d.queues.doctorQueueLength;
+    document.getElementById("stat-pharmacy-q").textContent = d.queues.pharmacyQueueLength;
+    document.getElementById("stat-beds").textContent = d.beds.availableBeds + "/" + d.beds.totalBeds;
+    document.getElementById("stat-doctors").textContent = d.doctorsPresent + "/" + d.doctorsTotal;
+  }
+}
+async function loadForecast() {
+  const { data } = await getJSON(`/api/forecast/${val("a-facility")}/${val("fc-drug")}`);
+  const box = document.getElementById("fc-result");
+  if (data.aiInsight) card(box, "", `<b>${data.drugName}</b><br>${data.aiInsight}<div class="meta">Current stock: ${data.currentStock} — avg ${data.avgDailyUsage}/day over ${data.daysOfDataUsed} recorded day(s)</div>`);
+  else card(box, "error", data.error || "Could not generate forecast.");
+}
+
+// ---- Live feed ----
+const socket = io(API);
+socket.on("connect", () => { document.getElementById("conn-status").textContent = "online"; });
+socket.on("disconnect", () => { document.getElementById("conn-status").textContent = "offline"; });
+setInterval(() => {
+  const fid = val("a-facility") || val("n-facility") || val("q-facility");
+  if (fid) socket.emit("join_facility", fid);
+}, 3000);
+["inventory_update", "queue_update", "bed_update", "staff_update", "staff_absent_alert"].forEach(evt => {
+  socket.on(evt, (payload) => {
+    const feed = document.getElementById("feed");
+    if (!feed) return;
+    const div = document.createElement("div");
+    div.className = "status-card";
+    div.innerHTML = `<b>${evt.replace("_"," ")}</b><div class="meta">${new Date().toLocaleTimeString()} — ${JSON.stringify(payload)}</div>`;
+    feed.prepend(div);
+    if (evt === "queue_update" || evt === "inventory_update") loadDashboard().catch(()=>{});
+  });
+});
+</script>
+</body>
+</html>

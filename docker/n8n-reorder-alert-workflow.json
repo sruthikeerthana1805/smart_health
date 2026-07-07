@@ -1,0 +1,70 @@
+{
+  "name": "Reorder Point Alert - Mock Cron",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "minutes", "minutesInterval": 15 }]
+        }
+      },
+      "name": "Every 15 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:4000/api/graphql",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"query\":\"query { facilityDashboard(facilityId: \\\"REPLACE_WITH_FACILITY_ID\\\") { inventory { drugId drugName currentStock minBuffer isLowStock } } }\"}",
+        "options": {}
+      },
+      "name": "Query Low Stock via GraphQL",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.data.facilityDashboard.inventory.some(i => i.isLowStock) }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "name": "Any Drug Below Buffer?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "notice": "Wire this to Slack / Email / SMS node to notify the District Admin of low-stock drugs.",
+        "options": {}
+      },
+      "name": "Send Reorder Alert (placeholder)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [900, 220]
+    }
+  ],
+  "connections": {
+    "Every 15 Minutes": {
+      "main": [[{ "node": "Query Low Stock via GraphQL", "type": "main", "index": 0 }]]
+    },
+    "Query Low Stock via GraphQL": {
+      "main": [[{ "node": "Any Drug Below Buffer?", "type": "main", "index": 0 }]]
+    },
+    "Any Drug Below Buffer?": {
+      "main": [[{ "node": "Send Reorder Alert (placeholder)", "type": "main", "index": 0 }]]
+    }
+  }
+}

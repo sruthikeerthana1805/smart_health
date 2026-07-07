@@ -1,0 +1,111 @@
+// Prisma schema — PostgreSQL (District & Inventory Ledger)
+// Run: npx prisma migrate dev --name init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum FacilityType {
+  PHC
+  CHC
+}
+
+model Facility {
+  id         String   @id @default(uuid())
+  name       String
+  type       FacilityType
+  location   String   // e.g. "Vijayawada Urban"
+  population Int
+  latitude   Float    @default(0)
+  longitude  Float    @default(0)
+  geofenceRadiusMeters Int @default(200)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  inventory Inventory[]
+  beds      Bed[]
+  staff     Staff[]
+
+  @@map("facilities")
+}
+
+model Inventory {
+  drugId       String   @id @default(uuid())
+  facilityId   String
+  drugName     String
+  currentStock Int      @default(0)
+  minBuffer    Int      @default(10)
+  unit         String   @default("units")
+  updatedAt    DateTime @updatedAt
+
+  facility     Facility      @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  expiryBatches ExpiryBatch[]
+
+  @@index([facilityId])
+  @@map("inventory")
+}
+
+// expiry_matrix -> batch tracking, modeled as its own table (1 drug : many batches)
+model ExpiryBatch {
+  id          String   @id @default(uuid())
+  drugId      String
+  batchNumber String
+  quantity    Int
+  expiryDate  DateTime
+
+  inventory Inventory @relation(fields: [drugId], references: [drugId], onDelete: Cascade)
+
+  @@index([drugId])
+  @@index([expiryDate])
+  @@map("expiry_batches")
+}
+
+model Bed {
+  bedId      String   @id @default(uuid())
+  facilityId String
+  isOccupied Boolean  @default(false)
+  qrCodeHash String   @unique
+  occupantAadhaarHash String?
+  updatedAt  DateTime @updatedAt
+
+  facility Facility @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+
+  @@index([facilityId])
+  @@map("beds")
+}
+
+model Staff {
+  doctorId          String    @id @default(uuid())
+  facilityId        String
+  name              String
+  isPresent         Boolean   @default(false)
+  lastGeofencePing  DateTime?
+  lastLat           Float?
+  lastLng           Float?
+  updatedAt         DateTime  @updatedAt
+
+  facility Facility @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+
+  @@index([facilityId])
+  @@map("staff")
+}
+
+model DispenseLog {
+  id          String   @id @default(uuid())
+  drugId      String
+  facilityId  String
+  quantity    Int
+  aadhaarHash String?
+  visitId     String?
+  dispensedAt DateTime @default(now())
+
+  @@index([drugId, dispensedAt])
+  @@index([facilityId])
+  @@index([aadhaarHash])
+  @@map("dispense_logs")
+}
