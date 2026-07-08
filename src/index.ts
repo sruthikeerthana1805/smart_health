@@ -11,6 +11,7 @@ import queueRoutes from "./routes/queue.routes";
 import inventoryRoutes from "./routes/inventory.routes";
 import forecastRoutes from "./routes/forecast.routes";
 import summaryRoutes from "./routes/summary.routes";
+import districtRoutes from "./routes/district.routes";
 import { connectMongo } from "./lib/mongo";
 import { connectRedis } from "./lib/redis";
 import { initWebSocket } from "./lib/websocket";
@@ -30,6 +31,7 @@ async function main() {
   app.use("/api/inventory", inventoryRoutes);
   app.use("/api/forecast", forecastRoutes);
   app.use("/api/summary", summaryRoutes);
+  app.use("/api/district", districtRoutes);
 
   // --- GraphQL: District Admin Dashboard ---
   app.all(
