@@ -28,6 +28,47 @@ npm run dev                # http://localhost:4000
 
 Open **http://localhost:4000** — that's the full demo console (Nurse / Doctor / Admin / Pharmacy Inventory), no separate frontend to deploy.
 
+## Deployment (Render) — current production setup
+
+Live URL: your Render backend URL (visible on your Render service dashboard)
+
+Services on Render:
+
+| Service | Type |
+|---|---|
+| smart-health-backend | Docker web service (Express + GraphQL + Socket.io) |
+| smart-health-db | PostgreSQL (Prisma) |
+| smart-health-redis | Redis — queues, geofence |
+| MongoDB | External (MongoDB Atlas) |
+
+Required environment variables on the `smart-health-backend` service (set actual values in Render dashboard → Environment, never commit them to git):
+
+| Variable | Purpose |
+|---|---|
+| DATABASE_URL | PostgreSQL connection string (Prisma) |
+| MONGO_URI | MongoDB Atlas connection string |
+| REDIS_URL | Redis connection string |
+| GEMINI_API_KEY | (optional) enables live AI forecasts |
+| PORT | 8080 (set automatically via Dockerfile) |
+
+After changing any env var, redeploy manually from the Render dashboard (Manual Deploy → Deploy latest commit).
+
+Run migrations/seed once against the same `DATABASE_URL`:
+
+```bash
+npx prisma migrate deploy
+npx prisma db seed
+```
+
+Verify:
+
+```bash
+curl https://<your-render-url>/health
+# {"status":"ok"}
+```
+
+Frontend (Vercel) talks to this backend via `VITE_API_BASE_URL` / `VITE_GRAPHQL_URL` / `VITE_WS_URL` — see the frontend repo's README for those values.
+
 ## Demo data (seeded)
 
 | Thing                          | ID                                     |
@@ -86,7 +127,7 @@ Data exposure is scoped to what each role actually needs:
 
 `GET /api/forecast/:facilityId/:drugId` — aggregates the last 14 days of dispense history (`DispenseLog`, written automatically every time a prescription is dispensed) into daily usage counts, then asks Gemini for a 2-sentence forecast + reorder recommendation.
 
-- Set a real `GEMINI_API_KEY` in `.env` to get live AI-generated insights.
+- Set a real `GEMINI_API_KEY` in `.env` (locally) or in Render's Environment settings (production) to get live AI-generated insights.
 - If the key is missing/placeholder, or the Gemini call fails, it **automatically falls back** to a simple moving-average estimate ("stock lasts ~N more days") — the feature degrades gracefully instead of breaking the demo.
 - Exposed in the Admin tab of the console under "AI demand forecast."
 
@@ -94,7 +135,7 @@ Data exposure is scoped to what each role actually needs:
 
 Import `docker/n8n-reorder-alert-workflow.json` into n8n (`http://localhost:5678`) — polls the GraphQL dashboard every 15 minutes and flags any drug below its buffer for a reorder alert.
 
-## Deployment (Google Cloud Run — free tier)
+## Deployment (Google Cloud Run — free tier, alternative)
 
 Compute runs on Cloud Run; all three data stores are external free-tier services, so there's no VPC/Cloud SQL Proxy setup needed.
 
@@ -111,7 +152,7 @@ gcloud init                                  # log in, select/create a project
 gcloud auth application-default login
 ```
 
-**3. Edit `deploy-gcp.sh`** — fill in `PROJECT_ID`, `DATABASE_URL`, `MONGO_URI`, `REDIS_URL` at the top of the file.
+**3. Edit `deploy-gcp.sh`** — fill in `PROJECT_ID`, `DATABASE_URL`, `MONGO_URI`, `REDIS_URL` at the top of the file (this file is local only — don't commit real secrets to git).
 
 **4. Deploy:**
 
@@ -145,24 +186,3 @@ The full demo console is served at the same URL — no separate frontend deploy 
 - **OTP session tokens** — the original spec calls for Redis-backed OTP verification. The Redis key helper (`otpKey`) exists but the actual send/verify flow was **deliberately deferred** for this build; identity is currently confirmed via Aadhaar number only. Straightforward to add on top of the existing Redis layer.
 
 ## Project structure
-
-```
-src/
-  controllers/   REST endpoint logic (registration, diagnosis, dispense, staff, beds, queue, inventory, status, summary, forecast)
-  routes/        Express route definitions
-  models/        Mongoose schemas (Patient, Visit)
-  graphql/       GraphQL schema + resolvers for the admin dashboard
-  lib/           Prisma client, Mongo/Redis connections, WebSocket setup, geofence math, Aadhaar hashing, Gemini forecast helper
-prisma/
-  schema.prisma  Postgres schema (Facility, Inventory, ExpiryBatch, Bed, Staff, DispenseLog)
-  seed.ts        Demo data seeder
-public/
-  index.html     Full demo console — Nurse / Doctor / Admin / Pharmacy Inventory, WhatsApp-style step wizards
-docker/
-  n8n-reorder-alert-workflow.json
-```
-
-## Notes
-
-- Aadhaar numbers are SHA-256 hashed before storage — raw numbers are never persisted, and can't be reversed from the hash (by design — the UI asks staff to re-enter it for identity confirmation rather than displaying it).
-- The `public/index.html` console is served directly by Express (`express.static`) — no separate frontend deploy, no CORS setup needed.
